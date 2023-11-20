@@ -7,7 +7,7 @@ from transformers.utils import logging
 from transformers import GenerationConfig
 import json
 from peft import LoraConfig, get_peft_model, TaskType,PeftModel
-from utils import get_gold_passages, response_gen, extract_ans_t5
+from .utils import get_gold_passages, response_gen, extract_ans_t5, write_json
 
 model_name = 'google/flan-t5-xl'
 
@@ -29,34 +29,78 @@ ANSWER:
 """
 
 
-
+output_folder = "data/"
+output_file = f"./{output_folder}hotpotqa_generated_result.json"
 ds = load_dataset("hotpot_qa", "distractor")
+split = "validation"
+
 use_finetune = False
 if use_finetune:
     model = PeftModel.from_pretrained(model, "flan_t5_xl_question_answering/checkpoint-600")
 
+
 def main():
 
-    gold_dataset = get_gold_passages(ds)
-    for data in tqdm(gold_dataset):
+    correct = 0
+    
+    done_ids = set()
+    
+    # create output file if it doesnt exist
+    if not os.path.exists(output_folder):
+        os.mkdir(output_folder)
+    
+    # open file where we are saving data
+    if os.path.exists(output_file):
+    
+        json_data = []
+        with open(output_file, 'r') as f:
+            for line in f:
+                sample = json.loads(line)
+                done_ids.add(sample["id"])
+                json_data.append(sample)
+                if sample["flag"]==True:
+                    correct += 1
+        
+        start_point = len(done_ids)
+        print(f"The generated samples reloaded, the number of sample is {start_point}. The accuracy is {correct/start_point}.")
+    else:
+        json_data = []
+    
+    for i, data in enumerate(tqdm(ds[split])):
+
+        if data["id"] in done_ids:
+            continue
    
-        input_prompt = zero_shot_prompt_flant5.format(data["question"], data["passage"])
+        gold_passages = get_gold_passages(data)
+
+        passage = "\n".join(gold_passages.values())
+        input_prompt = zero_shot_prompt_flant5.format(data["question"], passage)
+
         inputs = tokenizer(input_prompt,return_tensors='pt')
 
-        with torch.no_grad():
-            input_ids = inputs['input_ids'].to("cuda")
-            
-            output = response_gen(model, tokenizer, input_ids, generation_config)
+        input_ids = inputs['input_ids'].to("cuda")
+        
+        output = response_gen(model, tokenizer, input_ids, generation_config)
 
-            extracted_ans = extract_ans_t5(output)
-            print("Answer responded:", extracted_ans)
-            print(extracted_ans,'Ground truth',ds['train'][i]['label'])
-            correct += int(extract_ans_t5(output, data["answer"]))
-            print(f"Current accuracy: {correct/(i+1)}")
+        print("Answer responded:", output)
+        print("Ground truth:", data["answer"])
+
+        check_response = extract_ans_t5(output, data["answer"]) 
+        correct += int(check_response)
+        print(f"Current accuracy: {correct/(i+1)}")
+
+        ans_data = {
+            "id": data["id"],
+            "response": output,
+            "flag": check_response
+        }
+
+        # add ans_data to file
+        write_json(ans_data, output_file)
+
+        done_ids.add(data["id"])
     
 
 
 if __name__ == '__main__':
     main()
-    
-        
