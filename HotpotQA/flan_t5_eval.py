@@ -7,7 +7,7 @@ from transformers.utils import logging
 from transformers import GenerationConfig
 import json
 from peft import LoraConfig, get_peft_model, TaskType,PeftModel
-from utils import get_gold_passages, response_gen, extract_ans_t5, write_json
+from .utils import get_gold_passages, response_gen, extract_ans_t5, write_json
 
 model_name = 'google/flan-t5-xl'
 
@@ -38,35 +38,34 @@ use_finetune = False
 if use_finetune:
     model = PeftModel.from_pretrained(model, "flan_t5_xl_question_answering/checkpoint-600")
 
-correct = 0
-
-done_ids = set()
-
-# create output file if it doesnt exist
-if not os.path.exists(output_folder):
-    os.mkdir(output_folder)
-
-# open file where we are saving data
-if os.path.exists(output_file):
-
-    json_data = []
-    with open(output_file, 'r') as f:
-        for line in f:
-            sample = json.loads(line)
-            done_ids.add(sample["id"])
-            json_data.append(sample)
-            if sample["flag"]==True:
-                correct += 1
-    
-    start_point = len(done_ids)
-    print(f"The generated samples reloaded, the number of sample is {start_point}. The accuracy is {correct/start_point}.")
-else:
-    json_data = []
 
 def main():
 
-    # store the ids that are already done
-
+    correct = 0
+    
+    done_ids = set()
+    
+    # create output file if it doesnt exist
+    if not os.path.exists(output_folder):
+        os.mkdir(output_folder)
+    
+    # open file where we are saving data
+    if os.path.exists(output_file):
+    
+        json_data = []
+        with open(output_file, 'r') as f:
+            for line in f:
+                sample = json.loads(line)
+                done_ids.add(sample["id"])
+                json_data.append(sample)
+                if sample["flag"]==True:
+                    correct += 1
+        
+        start_point = len(done_ids)
+        print(f"The generated samples reloaded, the number of sample is {start_point}. The accuracy is {correct/start_point}.")
+    else:
+        json_data = []
+    
     for i, data in enumerate(tqdm(ds[split])):
 
         if data["id"] in done_ids:
@@ -98,6 +97,8 @@ def main():
 
         # add ans_data to file
         write_json(ans_data, output_file)
+
+        done_ids.add(data["id"])
     
 
 
